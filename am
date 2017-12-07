@@ -1,0 +1,123 @@
+#!/usr/bin/perl
+use strict;
+use warnings;
+use Cwd 'abs_path';
+
+my $fn = shift @ARGV || '';
+
+my @user_data = (getpwuid $>);
+my $file = $user_data[7] . '/.bashrc';
+my $txt = `cat $file`;
+
+my $start = '####### Start AliasManager ######';
+my $end   = '####### End   AliasManager ######';
+
+sub as_text {
+  my %mapping = @_;
+
+  my @alias = ();
+  while ( my ( $abbr, $cmd ) = each %mapping ) {
+    push @alias, "alias $abbr='$cmd'\n";
+  }
+
+  return join '', @alias;
+}
+
+my %am = (
+  add => sub {
+    unless ($txt =~ /\Q$start\E/) {
+      print "AliasManager not installed.\nPlease run 'am install'.\n";
+  return;
+    };
+    unless ( scalar @ARGV == 2 ) {
+      print "USAGE: am add <abbr> '<cmd>'\n";
+  return;
+    };
+
+    my $save = 0; # state
+    my %mapping = ();
+    for my $ln ( split /^/, $txt ) {
+      $save = 1 if $ln =~ /\Q$start\E/;
+      $save = 0 if $ln =~ /\Q$end\E/;
+    next unless $save;
+
+      if ( $ln =~ /alias (\w+)='([^\n]+?)'\n/ ) {
+        $mapping{ $1 } = $2;
+      }
+    }
+
+    $mapping{ $ARGV[0] } = "$ARGV[1]";
+
+    $txt =~ s/\n\n\Q$start\E\n.+?\Q$end\E\n\n//gis;
+    open(my $fh, '>', $file) or die $!;
+    print $fh $txt . "\n\n$start\n". as_text( %mapping ) ."$end\n\n";
+    close($fh);
+
+    print "Added alias $ARGV[0].  Please run:\nsource ~/.bashrc\n";
+  },
+  rm => sub {
+    unless ($txt =~ /\Q$start\E/) {
+      print "AliasManager not installed.\nPlease run 'am install'.\n";
+  return;
+    };
+    unless ( scalar @ARGV == 1 ) {
+      print "USAGE: am rm <abbr>\n";
+  return;
+    };
+
+    my $save = 0;
+    my @mapping = ();
+    for my $ln ( split /^/, $txt ) {
+      $save = 1 if $ln =~ /\Q$start\E/;
+      $save = 0 if $ln =~ /\Q$end\E/;
+    next unless $save;
+
+      if ( $ln =~ /alias (\w+)='([^\n]+?)'\n/ ) {
+        push @mapping, $1 => $2;
+      }
+    }
+
+    my %mapping = @mapping;
+    delete $mapping{ $ARGV[0] };
+
+    $txt =~ s/\n\n\Q$start\E\n.+?\Q$end\E\n\n//gis;
+    open(my $fh, '>', $file) or die $!;
+    print $fh $txt . "\n\n$start\n". as_text( %mapping ) ."$end\n\n";
+    close($fh);
+
+    print "Alias will be gone for all new Bash Shells.\n";
+  },
+  install => sub {
+    unless ($txt !~ /\Q$start\E/) {
+      print "AliasManager already installed.\n";
+  return;
+    };
+
+    open(my $fh, '>>', $file) or die $!;
+    print $fh "\n\n$start\n". as_text( am => abs_path($0) ) ."$end\n\n";
+    close($fh);
+
+    print "AliasManager Installation Complete.  Please run:\nsource ~/.bashrc\n";
+  },
+  uninstall => sub {
+    unless ($txt =~ /\Q$start\E/) {
+      print "AliasManager not installed.\n";
+  return;
+    };
+
+    $txt =~ s/\n\n\Q$start\E\n.+?\Q$end\E\n\n//gis;
+
+    open(my $fh, '>', $file) or die $!;
+    print $fh $txt;
+    close($fh);
+
+    print "AliasManager Uninstallation Complete.  Please run:\nsource ~/.bashrc\n";
+  },
+);
+
+if ( defined $am{$fn} ) {
+  $am{$fn}->( @ARGV );
+}
+else {
+  print "Action option '$fn' not found.  Supported actions are: @{[ join ', ', sort keys %am ]}\n";
+}
